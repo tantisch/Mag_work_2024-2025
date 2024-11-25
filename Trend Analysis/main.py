@@ -11,10 +11,6 @@ def main():
     df = pd.read_csv('data.csv')
     
      # Get user choice for methods
-    print("\nPivot Point Detection Method:")
-    print("1: Fractal method (from indicator.py)")
-    print("2: MinMax method (from plots3.py)")
-    pivot_method = int(input("Enter choice (1 or 2): "))
     
     print("\nTrendline Detection Method:")
     print("1: Linear regression method (from plots3.py)")
@@ -22,7 +18,7 @@ def main():
     trendline_method = int(input("Enter choice (1 or 2): "))
     
     # Detect pivot points
-    high_pivots, low_pivots = get_pivot_points(df, method=pivot_method)
+    high_pivots, low_pivots = get_pivot_points(df)
     
     # Calculate trendlines
     if trendline_method == 1:
@@ -30,11 +26,20 @@ def main():
         support_lines = simple_trendlines(low_pivots, df, is_support=True)
         resistance_lines = simple_trendlines(high_pivots, df, is_support=False)
     else:
-        # Use the Hough transform method
-        support_lines = hough_transform_trendlines(low_pivots, df, is_support=True, 
-                                                 high_pivots=high_pivots, low_pivots=low_pivots)
-        resistance_lines = hough_transform_trendlines(high_pivots, df, is_support=False,
-                                                    high_pivots=high_pivots, low_pivots=low_pivots)
+        # Use the Hough transform method with multiple ranges
+        future_pivot_ranges = [10, 25]  # Short and long range
+        
+        support_lines = hough_transform_trendlines(
+            low_pivots, df, is_support=True, 
+            high_pivots=high_pivots, low_pivots=low_pivots,
+            future_pivot_ranges=future_pivot_ranges
+        )
+        
+        resistance_lines = hough_transform_trendlines(
+            high_pivots, df, is_support=False,
+            high_pivots=high_pivots, low_pivots=low_pivots,
+            future_pivot_ranges=future_pivot_ranges
+        )
     
     # Plot results
     plot_analysis(df, high_pivots, low_pivots, support_lines, resistance_lines)

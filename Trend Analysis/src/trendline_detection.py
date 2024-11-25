@@ -50,7 +50,7 @@ def simple_trendlines(pivot_points: List[int], df: pd.DataFrame, is_support: boo
 def get_points_on_line(line: Tuple[float, float, int], 
                       pivot_points: List[int],
                       df: pd.DataFrame,
-                      margin: float = 5.0) -> List[int]:
+                      margin: float = 10.0) -> List[int]:
     """
     Get consecutive valid touches of the line.
     Returns only points that form a valid sequence.
@@ -73,9 +73,11 @@ def is_line_valid_between_pivots(line: Tuple[float, float, int],
                                 high_pivots: Set[int],
                                 low_pivots: Set[int],
                                 df: pd.DataFrame,
-                                is_support: bool) -> bool:
+                                is_support: bool,
+                                margin: float = 10.0) -> bool:
     """
     Check if there are any violating pivots between the two pivots that establish the line.
+    A pivot is considered violating only if it's beyond the margin.
     """
     slope, intercept, _ = line
     
@@ -86,14 +88,15 @@ def is_line_valid_between_pivots(line: Tuple[float, float, int],
     for pivot_idx in between_pivots:
         price = df['close'].iloc[pivot_idx]
         line_value = slope * pivot_idx + intercept
+        distance = price - line_value  # Signed distance
         
         if is_support:
-            # For support, check if any low pivot is below the line
-            if pivot_idx in low_pivots and price < line_value:
+            # For support, check if any low pivot is below the line by more than margin
+            if pivot_idx in low_pivots and distance < -margin:
                 return False
         else:
-            # For resistance, check if any high pivot is above the line
-            if pivot_idx in high_pivots and price > line_value:
+            # For resistance, check if any high pivot is above the line by more than margin
+            if pivot_idx in high_pivots and distance > margin:
                 return False
     
     return True
@@ -121,6 +124,7 @@ def find_valid_line(main_point: Tuple[int, float],
             supporting_points = get_points_on_line(line, pivot_points, df)
             
             if len(supporting_points) >= 2:
+                # return line, supporting_points
                 # Only check for intersections, not score
                 first_two_valid = is_line_valid_between_pivots(
                     line, 
@@ -142,10 +146,11 @@ def hough_transform_trendlines(pivot_points: List[int],
                              is_support: bool = True,
                              high_pivots: List[int] = None, 
                              low_pivots: List[int] = None,
-                             max_future_pivots: int = 10,
-                             min_score: float = 3.0) -> List[Tuple[float, float, int, TrendlineEvents]]:
+                             future_pivot_ranges: List[int] = [8, 20],  # Multiple ranges
+                             min_score: float = 5.0,
+                             max_false_breakouts: int = 2) -> List[Tuple[float, float, int, TrendlineEvents]]:
     """
-    Hough tranform method for trendlines
+    Find valid lines for different ranges of future pivots simultaneously
     """
     high_pivots = set(high_pivots if high_pivots is not None else [])
     low_pivots = set(low_pivots if low_pivots is not None else [])
@@ -156,55 +161,71 @@ def hough_transform_trendlines(pivot_points: List[int],
     points = [(idx, df['close'].iloc[idx]) for idx in pivot_points]
     valid_lines = []
     
-    # First phase: find all valid lines (no intersections)
+    # Process each main point for each future pivot range
     for i, main_point in enumerate(points):
         main_idx = main_point[0]
         main_seq = pivot_sequence[main_idx]
         
-        max_seq = main_seq + max_future_pivots
-        future_indices = [idx for idx in all_pivot_indices 
-                         if main_idx < idx and pivot_sequence[idx] <= max_seq]
+        # Try each range of future pivots
+        for max_future_pivots in future_pivot_ranges:
+            max_seq = main_seq + max_future_pivots
+            future_indices = [idx for idx in all_pivot_indices 
+                            if main_idx < idx and pivot_sequence[idx] <= max_seq]
+            
+            future_points = [(idx, df['close'].iloc[idx]) for idx in future_indices]
+            if not future_points:
+                continue
+                
+            points_array = np.array([(main_point[0], main_point[1])] + future_points)
+            
+            # Try to find a valid line
+            result = find_valid_line(
+                main_point,
+                points_array,
+                pivot_points,
+                high_pivots,
+                low_pivots,
+                df,
+                is_support
+            )
+            
+            if result is not None:
+                line, supporting_points = result
+                valid_lines.append((line, supporting_points, max_future_pivots))  # Store range used
+    
+    # Second phase: calculate events and scores
+    scored_lines = []
+    for line, supporting_points, range_used in valid_lines:
+        events = detect_events(line, df, high_pivots, low_pivots, is_support)
         
-        future_points = [(idx, df['close'].iloc[idx]) for idx in future_indices]
-        if not future_points:
+        # Skip lines with too many false breakouts
+        if len(events.false_breakouts) > max_false_breakouts:
             continue
             
-        points_array = np.array([(main_point[0], main_point[1])] + future_points)
-        
-        # Try to find a valid line
-        result = find_valid_line(
-            main_point,
-            points_array,
-            pivot_points,
-            high_pivots,
-            low_pivots,
-            df,
-            is_support
-        )
-        
-        if result is not None:
-            line, supporting_points = result
-            valid_lines.append((line, supporting_points))
-    
-    # Second phase: calculate events and scores for valid lines
-    scored_lines = []
-    for line, supporting_points in valid_lines:
-        events = detect_events(line, df, high_pivots, low_pivots, is_support)
         score = calculate_trendline_score(events)
         if score >= min_score:
-            scored_lines.append((line, supporting_points, events, score))
+            scored_lines.append((line, supporting_points, events, score, range_used))
     
-    # Sort by start time
+    # Sort by start time and range
     scored_lines.sort(key=lambda x: x[0][2])
     
     # Filter out redundant lines
     final_lines = []
-    used_points = set()
+    lines_with_points = []  # Store tuples of (line, points_set)
     
-    for line, points_on_line, events, score in scored_lines:
-        unique_points = set(points_on_line) - used_points
-        if len(unique_points) >= 2:
+    for line, points_on_line, events, score, _ in scored_lines:
+        points_set = set(points_on_line)
+        is_redundant = False
+        
+        # Check overlap with each existing line individually
+        for existing_line, existing_points in lines_with_points:
+            overlap_count = len(points_set & existing_points)
+            if overlap_count >= 2:
+                is_redundant = True
+                break
+        
+        if not is_redundant:
             final_lines.append((line[0], line[1], line[2], events))
-            used_points.update(points_on_line)
+            lines_with_points.append((line, points_set))
     
     return final_lines

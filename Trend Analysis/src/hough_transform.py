@@ -21,7 +21,7 @@ def hough_transform_from_point(main_point, other_points, theta_resolution=1, rho
     
     accumulator = np.zeros((len(rhos), len(thetas)))
     
-    distance_threshold = 5
+    distance_threshold = 20
     
     for theta_idx, theta in enumerate(thetas):
         main_rho = x_main * np.cos(theta) + y_main * np.sin(theta)

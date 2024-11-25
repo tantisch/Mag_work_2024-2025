@@ -14,7 +14,7 @@ def detect_events(line: Tuple[float, float, int],
                  high_pivots: List[int],
                  low_pivots: List[int],
                  is_support: bool,
-                 margin: float = 5.0) -> TrendlineEvents:
+                 margin: float = 10.0) -> TrendlineEvents:
     """
     Detect all events for a trendline 
     """
@@ -130,13 +130,13 @@ def calculate_trendline_score(events: TrendlineEvents) -> float:
     score = 0.0
     
     # Very good: touches
-    score += len(events.touches) * 4.0
+    score += len(events.touches) * 5.0
     
     # Good: throwbacks
-    score += len(events.throwbacks) * 2
+    score += len(events.throwbacks) * 3
     
     # Ok: breakouts
-    score += len(events.breakouts) * 0.5
+    # score += len(events.breakouts) * 0.5
     
     # Not good: false breakouts
     score -= len(events.false_breakouts) * 2
