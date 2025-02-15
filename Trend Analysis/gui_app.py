@@ -1,17 +1,17 @@
-
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import pandas as pd
 from src.pivot_detection import get_pivot_points
 from src.trendline_detection import simple_trendlines, hough_transform_trendlines
 from src.visualization import plot_analysis
+from src.utils import prepare_data_with_atr
 import os
 
 class TrendAnalyzerGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Trend Analysis Tool")
-        self.root.geometry("500x400")  # Slightly increased height for better spacing
+        self.root.geometry("500x550")  # Increased height for new controls
         
         # Configure style
         self.style = ttk.Style()
@@ -89,9 +89,30 @@ class TrendAnalyzerGUI:
         ttk.Radiobutton(trendline_frame, text="Hough Transform", variable=self.trendline_method, 
                        value=2, style='Modern.TRadiobutton').grid(row=1, column=0, sticky=tk.W)
         
-        # Hough parameters frame with enhanced explanation
+        # ATR Settings frame
+        atr_frame = ttk.LabelFrame(main_frame, text="ATR Settings", padding="10")
+        atr_frame.grid(row=2, column=0, columnspan=2, pady=(0, 20), sticky=(tk.W, tk.E))
+        
+        # ATR Period
+        ttk.Label(atr_frame, text="ATR Period:").grid(row=0, column=0, padx=(0, 10))
+        self.atr_period = tk.StringVar(value="14")
+        ttk.Entry(atr_frame, textvariable=self.atr_period, width=5).grid(row=0, column=1)
+        
+        # ATR Multiplier
+        ttk.Label(atr_frame, text="ATR Multiplier:").grid(row=0, column=2, padx=(20, 10))
+        self.atr_multiplier = tk.StringVar(value="0.5")
+        ttk.Entry(atr_frame, textvariable=self.atr_multiplier, width=5).grid(row=0, column=3)
+        
+        # Add tooltip for ATR settings
+        atr_tooltip = ("ATR Period: Number of periods for ATR calculation\n"
+                      "ATR Multiplier: Sensitivity of trendline detection\n"
+                      "- Lower values (0.3-0.5): Tighter trendlines\n"
+                      "- Higher values (0.6-0.8): More forgiving trendlines")
+        self.create_tooltip(atr_frame, atr_tooltip)
+        
+        # Hough parameters frame
         params_frame = ttk.LabelFrame(main_frame, text="Hough Transform Configuration", padding="10")
-        params_frame.grid(row=2, column=0, columnspan=2, pady=(0, 20), sticky=(tk.W, tk.E))
+        params_frame.grid(row=3, column=0, columnspan=2, pady=(0, 20), sticky=(tk.W, tk.E))
         
         # Add explanation text
         explanation = ("Analysis is performed simultaneously with two different ranges,\n"
@@ -100,9 +121,26 @@ class TrendAnalyzerGUI:
         explanation_label = ttk.Label(params_frame, text=explanation, wraplength=500, justify=tk.LEFT)
         explanation_label.grid(row=0, column=0, columnspan=3, pady=(0, 10), sticky=tk.W)
         
+        # Minimum score frame
+        score_frame = ttk.Frame(params_frame)
+        score_frame.grid(row=1, column=0, padx=5, pady=(0, 10))
+        
+        ttk.Label(score_frame, text="Min Score:").grid(row=0, column=0, padx=(0, 5))
+        self.min_score = tk.StringVar(value="5.0")
+        ttk.Entry(score_frame, textvariable=self.min_score, width=5).grid(row=0, column=1)
+        
+        # Add tooltip for minimum score
+        score_tooltip = ("Minimum score required for a trendline to be considered valid.\n"
+                        "Higher values mean more strict detection.\n"
+                        "Score calculation:\n"
+                        "- Each touch: +5.0 points\n"
+                        "- Each throwback: +3.0 points\n"
+                        "- Each false breakout: -2.0 points")
+        self.create_tooltip(score_frame, score_tooltip)
+        
         # Short range frame
         short_range_frame = ttk.Frame(params_frame)
-        short_range_frame.grid(row=1, column=0, padx=5)
+        short_range_frame.grid(row=2, column=0, padx=5)
         
         ttk.Label(short_range_frame, text="Short Range:").grid(row=0, column=0, padx=(0, 5))
         self.range1 = tk.StringVar(value="10")
@@ -120,7 +158,7 @@ class TrendAnalyzerGUI:
         
         # Analysis button
         analyze_button = ttk.Button(main_frame, text="Analyze", command=self.run_analysis)
-        analyze_button.grid(row=3, column=0, columnspan=2, pady=(0, 10))
+        analyze_button.grid(row=4, column=0, columnspan=2, pady=(0, 10))
         
     def run_analysis(self):
         """Run the analysis with selected parameters"""
@@ -129,8 +167,11 @@ class TrendAnalyzerGUI:
             return
             
         try:
-            # Load data
+            # Load and prepare data with ATR
             df = pd.read_csv(self.file_path.get())
+            atr_period = int(self.atr_period.get())
+            atr_multiplier = float(self.atr_multiplier.get())
+            df = prepare_data_with_atr(df, atr_period)
             
             # Get pivot points with specified window
             window = int(self.window_size.get())
@@ -150,16 +191,22 @@ class TrendAnalyzerGUI:
                     messagebox.showerror("Error", "Future pivot ranges must be valid numbers.")
                     return
                 
+                min_score = float(self.min_score.get())
+                
                 support_lines = hough_transform_trendlines(
                     low_pivots, df, is_support=True,
                     high_pivots=high_pivots, low_pivots=low_pivots,
-                    future_pivot_ranges=future_pivot_ranges
+                    future_pivot_ranges=future_pivot_ranges,
+                    atr_multiplier=atr_multiplier,
+                    min_score=min_score
                 )
                 
                 resistance_lines = hough_transform_trendlines(
                     high_pivots, df, is_support=False,
                     high_pivots=high_pivots, low_pivots=low_pivots,
-                    future_pivot_ranges=future_pivot_ranges
+                    future_pivot_ranges=future_pivot_ranges,
+                    atr_multiplier=atr_multiplier,
+                    min_score=min_score
                 )
             
             # Plot results

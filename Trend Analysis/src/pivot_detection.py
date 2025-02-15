@@ -12,3 +12,4 @@ def get_pivot_points(df: pd.DataFrame, window: int = 5) -> tuple:
     low_idx = argrelextrema(df['close'].values, np.less, order=window)[0]
     
     return high_idx, low_idx
+
