@@ -8,13 +8,19 @@ from .hough_transform import hough_transform_from_point
 from .trendline_events import detect_events, TrendlineEvents, calculate_trendline_score, get_dynamic_margin
 from .utils import calculate_atr
 
-def simple_trendlines(pivot_points: List[int], df: pd.DataFrame, is_support: bool = True) -> List[Tuple[float, float, int, int]]:
-    """simple trendline finder with dynamic margin"""
+def simple_trendlines(pivot_points: List[int], df: pd.DataFrame, is_support: bool = True,
+                     high_pivots: List[int] = None, low_pivots: List[int] = None,
+                     atr_multiplier: float = 0.5) -> List[Tuple[float, float, int, TrendlineEvents]]:
+    """simple trendline finder with dynamic margin and event detection"""
     valid_lines = []
     
     # Ensure ATR is calculated
     if not hasattr(df, 'atr'):
         df['atr'] = calculate_atr(df)
+    
+    # Convert to sets for event detection
+    high_pivots_set = set(high_pivots if high_pivots is not None else [])
+    low_pivots_set = set(low_pivots if low_pivots is not None else [])
     
     for i in range(len(pivot_points) - 1):
         x1, x2 = pivot_points[i], pivot_points[i + 1]
@@ -50,7 +56,14 @@ def simple_trendlines(pivot_points: List[int], df: pd.DataFrame, is_support: boo
                 break
         
         if valid:
-            valid_lines.append((slope, intercept, x1, breakout_point))
+            # Create a line tuple in the format expected by detect_events
+            line = (slope, intercept, x1)
+            
+            # Detect events for this line
+            events = detect_events(line, df, high_pivots_set, low_pivots_set, is_support, atr_multiplier)
+            
+            # Add to valid lines
+            valid_lines.append((slope, intercept, x1, events))
     
     return valid_lines
 
